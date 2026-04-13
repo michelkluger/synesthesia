@@ -122,21 +122,20 @@ pub static SONGS: &[TutorialSong] = &[
     TutorialSong {
         name:        "Interstellar Theme",
         description: "Hans Zimmer · Cornfield Chase · G major",
-        bpm:         56.0,
+        bpm:         52.0,
         notes: &[
-            // Phrase 1 — opening statement
-            n!(392.00,2.0,"G4"), n!(440.00,1.0,"A4"), n!(392.00,1.0,"G4"),
-            n!(329.63,2.0,"E4"), n!(293.66,2.0,"D4"),
-            // Phrase 2 — low arc
-            n!(246.94,2.0,"B3"), n!(293.66,1.0,"D4"), n!(329.63,1.0,"E4"),
-            n!(392.00,2.0,"G4"), n!(440.00,2.0,"A4"),
-            // Phrase 3 — descending release
-            n!(392.00,1.0,"G4"), n!(369.99,1.0,"F#4"), n!(329.63,2.0,"E4"),
-            n!(293.66,1.0,"D4"), n!(246.94,1.0,"B3"), n!(196.00,2.0,"G3"),
-            // Phrase 4 — rise and resolution
-            n!(392.00,1.0,"G4"), n!(440.00,1.0,"A4"), n!(493.88,2.0,"B4"),
-            n!(440.00,1.0,"A4"), n!(392.00,1.0,"G4"),
-            n!(329.63,2.0,"E4"), n!(392.00,4.0,"G4"),
+            // Opening — starts high, steps down with space between each note
+            n!(587.33,3.0,"D5"), n!(493.88,2.0,"B4"), n!(392.00,1.0,"G4"),
+            n!(440.00,2.0,"A4"), n!(493.88,1.0,"B4"), n!(587.33,3.0,"D5"),
+            // Peak and descent
+            n!(659.26,3.0,"E5"), n!(587.33,2.0,"D5"), n!(493.88,1.0,"B4"),
+            n!(440.00,3.0,"A4"), n!(392.00,3.0,"G4"),
+            // Middle phrase — colour note then rise
+            n!(493.88,2.0,"B4"), n!(440.00,1.0,"A4"), n!(369.99,3.0,"F#4"),
+            n!(392.00,3.0,"G4"), n!(440.00,3.0,"A4"),
+            // Final arc — long resolution home
+            n!(493.88,2.0,"B4"), n!(587.33,1.0,"D5"), n!(493.88,6.0,"B4"),
+            n!(392.00,6.0,"G4"),
         ],
     },
 ];
