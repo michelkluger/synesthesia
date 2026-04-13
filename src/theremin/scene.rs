@@ -4,6 +4,7 @@ use egui::{
     epaint::{Mesh, Vertex},
     Color32, Painter, Pos2, Rect, Rgba, Sense, Stroke, Vec2,
 };
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::audio::{AudioEngine, AudioState, Waveform};
@@ -44,6 +45,10 @@ pub struct ThereminScene {
     waveform: Waveform,
 
     tutorial: Option<TutorialMode>,
+
+    /// Active touch points (finger id → canvas position).
+    /// When non-empty these override mouse for up to 2 voices.
+    active_touches: HashMap<u64, Pos2>,
 }
 
 impl ThereminScene {
@@ -61,6 +66,7 @@ impl ThereminScene {
             mouse_active: false,
             waveform: Waveform::Sine,
             tutorial: None,
+            active_touches: HashMap::new(),
         }
     }
 
@@ -126,21 +132,40 @@ impl ThereminScene {
                 ui.add_space(8.0);
                 ui.separator();
 
-                // Current note
+                // Current note(s)
                 ui.add_space(8.0);
                 let note = freq_to_note(self.current_freq);
-                let hue = freq_to_hue(self.current_freq);
+                let hue  = freq_to_hue(self.current_freq);
                 let note_col = hue_to_color(hue, 0.8, 1.0, 255);
                 ui.horizontal(|ui| {
                     ui.label("Note:");
                     ui.label(
-                        egui::RichText::new(&note)
-                            .size(28.0)
-                            .strong()
-                            .color(note_col),
+                        egui::RichText::new(&note).size(28.0).strong().color(note_col),
                     );
                 });
                 ui.label(format!("{:.1} Hz", self.current_freq));
+
+                // Voice 2 — only shown while a second finger is active
+                let v2_active = if let Ok(s) = self.audio.state.try_lock() {
+                    s.active2 && s.target_vol2 > 0.001
+                } else { false };
+                if v2_active {
+                    let freq2 = if let Ok(s) = self.audio.state.try_lock() {
+                        s.target_freq2
+                    } else { 0.0 };
+                    let note2     = freq_to_note(freq2);
+                    let hue2      = freq_to_hue(freq2);
+                    let note_col2 = hue_to_color(hue2, 0.8, 1.0, 220);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("  +").size(14.0)
+                            .color(Color32::from_rgb(140, 140, 160)));
+                        ui.label(
+                            egui::RichText::new(&note2).size(20.0).strong().color(note_col2),
+                        );
+                        ui.label(egui::RichText::new(format!("{:.1} Hz", freq2))
+                            .size(11.0).color(dim));
+                    });
+                }
 
                 ui.add_space(10.0);
                 ui.separator();
@@ -354,8 +379,40 @@ impl ThereminScene {
             // Grid
             render_grid(&painter, rect);
 
-            // Mouse / pointer input
-            let pointer = ctx.input(|i| {
+            // ── Touch events ─────────────────────────────────────────────────
+            // Track all active fingers so we can route up to 2 simultaneous voices.
+            let touch_events = ctx.input(|i| i.events.clone());
+            for ev in &touch_events {
+                match ev {
+                    egui::Event::Touch { id, pos, phase, .. } => {
+                        match phase {
+                            egui::TouchPhase::Start | egui::TouchPhase::Move => {
+                                self.active_touches.insert(id.0, *pos);
+                            }
+                            egui::TouchPhase::End | egui::TouchPhase::Cancel => {
+                                self.active_touches.remove(&id.0);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // Collect touch positions (stable order: sort by key so they don't
+            // swap between frames as new events arrive).
+            let mut touch_positions: Vec<Pos2> = {
+                let mut v: Vec<(u64, Pos2)> = self.active_touches
+                    .iter()
+                    .map(|(&k, &p)| (k, p))
+                    .collect();
+                v.sort_by_key(|(k, _)| *k);
+                v.into_iter().map(|(_, p)| p).collect()
+            };
+            // Remove fingers that left the canvas
+            touch_positions.retain(|p| rect.contains(*p));
+
+            // ── Mouse / pointer input ────────────────────────────────────────
+            let (mouse_pos, primary_down, _is_moving) = ctx.input(|i| {
                 (
                     i.pointer.latest_pos(),
                     i.pointer.primary_down(),
@@ -363,61 +420,110 @@ impl ThereminScene {
                 )
             });
 
-            let (mouse_pos, primary_down, is_moving) = pointer;
+            let over_canvas = mouse_pos.map(|p| rect.contains(p)).unwrap_or(false);
+            self.mouse_active = over_canvas && touch_positions.is_empty();
 
-            let over_canvas = mouse_pos
-                .map(|p| rect.contains(p))
-                .unwrap_or(false);
-
-            self.mouse_active = over_canvas && mouse_pos.is_some();
-
-            // Don't let mouse override audio while autoplay is running.
             let is_autoplay = matches!(&self.tutorial, Some(TutorialMode::Autoplay { .. }));
+            let use_touch   = !touch_positions.is_empty();
 
-            if self.mouse_active {
-                let pos = mouse_pos.unwrap();
-                let rel_x = (pos.x - rect.left()) / rect.width();
-                let rel_y = (pos.y - rect.top()) / rect.height();
-
-                let freq =
-                    MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(rel_x.clamp(0.0, 1.0));
-                // Y=0 top → 100%, Y=bottom → 10%
-                let vol_raw = 1.0 - rel_y.clamp(0.0, 1.0) * 0.9;
-                // Clicking = full vol, hovering = 40%
-                let vol = if primary_down {
-                    vol_raw
-                } else {
-                    vol_raw * 0.4
-                } * self.master_volume;
-
-                self.current_freq = freq;
-                self.current_vol = vol;
-
-                // Push trail point (skip during autoplay — virtual cursor has its own trail)
-                if !is_autoplay {
-                    self.trail.push(TrailPoint {
-                        pos,
-                        freq,
-                        vol: vol_raw,
-                        age: 0.0,
-                    });
-                }
-
-                // Update audio (only when autoplay is not driving it)
-                if !is_autoplay {
+            if is_autoplay {
+                // Autoplay drives voice 1 itself; silence both manual voices.
+                // (voice 2 can still be played with a second finger if desired)
+                if !use_touch {
                     if let Ok(mut s) = self.audio.state.try_lock() {
-                        s.target_freq = freq;
-                        s.target_vol = vol;
-                        s.active = true;
-                        s.waveform = self.waveform;
+                        s.active2    = false;
+                        s.target_vol2 = 0.0;
                     }
                 }
-            } else if !is_autoplay {
-                // Silence only when autoplay is not running
-                if let Ok(mut s) = self.audio.state.try_lock() {
-                    s.active = false;
-                    s.target_vol = 0.0;
+            } else if use_touch {
+                // ── Multi-touch: up to 2 simultaneous voices ─────────────────
+                let make_voice = |pos: Pos2| -> (f32, f32) {
+                    let rel_x = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                    let rel_y = ((pos.y - rect.top())  / rect.height()).clamp(0.0, 1.0);
+                    let freq  = MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(rel_x);
+                    let vol   = (1.0 - rel_y * 0.9) * self.master_volume;
+                    (freq, vol)
+                };
+
+                if let Some(&p1) = touch_positions.get(0) {
+                    let (freq, vol) = make_voice(p1);
+                    self.current_freq = freq;
+                    self.current_vol  = vol;
+                    self.trail.push(TrailPoint { pos: p1, freq, vol, age: 0.0 });
+                    if let Ok(mut s) = self.audio.state.try_lock() {
+                        s.target_freq = freq;
+                        s.target_vol  = vol;
+                        s.active      = true;
+                        s.waveform    = self.waveform;
+                    }
                 }
+
+                if let Some(&p2) = touch_positions.get(1) {
+                    let (freq2, vol2) = make_voice(p2);
+                    self.trail.push(TrailPoint { pos: p2, freq: freq2, vol: vol2, age: 0.0 });
+                    if let Ok(mut s) = self.audio.state.try_lock() {
+                        s.target_freq2 = freq2;
+                        s.target_vol2  = vol2;
+                        s.active2      = true;
+                        s.waveform     = self.waveform;
+                    }
+                } else {
+                    // Only one finger — silence voice 2
+                    if let Ok(mut s) = self.audio.state.try_lock() {
+                        s.active2     = false;
+                        s.target_vol2 = 0.0;
+                    }
+                }
+            } else if self.mouse_active {
+                // ── Single mouse pointer ─────────────────────────────────────
+                let pos   = mouse_pos.unwrap();
+                let rel_x = (pos.x - rect.left()) / rect.width();
+                let rel_y = (pos.y - rect.top())  / rect.height();
+                let freq  = MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(rel_x.clamp(0.0, 1.0));
+                let vol_raw = 1.0 - rel_y.clamp(0.0, 1.0) * 0.9;
+                let vol = if primary_down { vol_raw } else { vol_raw * 0.4 }
+                    * self.master_volume;
+
+                self.current_freq = freq;
+                self.current_vol  = vol;
+                self.trail.push(TrailPoint { pos, freq, vol: vol_raw, age: 0.0 });
+
+                if let Ok(mut s) = self.audio.state.try_lock() {
+                    s.target_freq = freq;
+                    s.target_vol  = vol;
+                    s.active      = true;
+                    s.waveform    = self.waveform;
+                    s.active2     = false;
+                    s.target_vol2 = 0.0;
+                }
+            } else {
+                // No input — silence both voices
+                if let Ok(mut s) = self.audio.state.try_lock() {
+                    s.active      = false;
+                    s.target_vol  = 0.0;
+                    s.active2     = false;
+                    s.target_vol2 = 0.0;
+                }
+            }
+
+            // Second-finger cursor (drawn before trail so trail is on top)
+            if let Some(&p2) = touch_positions.get(1) {
+                let pulse = (self.pulse_t.sin() * 0.5 + 0.5) * 0.4 + 0.6;
+                let hue2  = freq_to_hue(MIN_FREQ * (MAX_FREQ / MIN_FREQ)
+                    .powf(((p2.x - rect.left()) / rect.width()).clamp(0.0, 1.0)));
+                let col2  = hue_to_color(hue2, 0.9, 1.0, (pulse * 200.0) as u8);
+                let r2    = 8.0 * pulse;
+                // Square marker to visually distinguish from the round first finger
+                painter.rect_stroke(
+                    egui::Rect::from_center_size(p2, Vec2::splat(r2 * 2.0)),
+                    2.0,
+                    Stroke::new(2.0, col2),
+                );
+                painter.rect_stroke(
+                    egui::Rect::from_center_size(p2, Vec2::splat((r2 + 4.0) * 2.0)),
+                    3.0,
+                    Stroke::new(1.5, hue_to_color(hue2, 0.6, 1.0, (pulse * 100.0) as u8)),
+                );
             }
 
             // Age trail points and cull old ones
