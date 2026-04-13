@@ -12,11 +12,11 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 900.0])
-            .with_title("Sound Art"),
+            .with_title("Synesthesia"),
         ..Default::default()
     };
     eframe::run_native(
-        "Sound Art",
+        "Synesthesia",
         options,
         Box::new(|cc| Ok(Box::new(app::SoundArtApp::new(cc)))),
     )

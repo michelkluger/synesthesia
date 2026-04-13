@@ -53,7 +53,7 @@ impl eframe::App for SoundArtApp {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("◈  Sound Art")
+                        RichText::new("◈  Synesthesia")
                             .size(17.0)
                             .color(Color32::from_rgb(200, 175, 110))
                             .strong(),

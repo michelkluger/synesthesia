@@ -496,16 +496,47 @@ impl CymaticsScene {
 
         ui.add_space(12.0);
 
-        // Tiny explanatory blurb at the bottom.
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(
-                    "Sand grains migrate toward\nnodal lines where plate\nvibration is zero.",
-                )
-                .size(10.0)
-                .color(Color32::from_rgba_unmultiplied(120, 120, 140, 160)),
-            );
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // Physics explanation (collapsible)
+        egui::CollapsingHeader::new(
+            egui::RichText::new("How it works")
+                .size(12.0)
+                .color(Color32::from_rgb(160, 160, 180)),
+        )
+        .default_open(false)
+        .show(ui, |ui| {
+            let dim = Color32::from_rgba_unmultiplied(160, 165, 185, 220);
+            let hi  = Color32::from_rgb(220, 200, 100);
+
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Chladni Figures").size(11.0).color(hi).strong());
+            ui.label(egui::RichText::new(
+                "In 1787, Ernst Chladni bowed a metal plate \
+                 and scattered sand — the grains collected into \
+                 geometric patterns now called Chladni figures."
+            ).size(10.0).color(dim));
+
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Displacement field").size(11.0).color(hi).strong());
+            ui.label(egui::RichText::new(
+                "Z(x,y) = cos(m·π·x/W)·cos(n·π·y/H)\n\
+                        − cos(n·π·x/W)·cos(m·π·y/H)\n\n\
+                 m and n are mode numbers that grow with \
+                 frequency.  Nodal lines are where Z = 0 — \
+                 the plate is stationary there."
+            ).size(10.0).color(dim));
+
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Particle physics").size(11.0).color(hi).strong());
+            ui.label(egui::RichText::new(
+                "3 000 virtual sand grains feel a force \
+                 proportional to −∇|Z|, pushing them toward \
+                 the nearest nodal line.  Brownian jitter \
+                 keeps them alive once settled."
+            ).size(10.0).color(dim));
         });
     }
 

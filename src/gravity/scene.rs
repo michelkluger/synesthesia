@@ -306,6 +306,50 @@ impl GravityScene {
             egui::RichText::new(format!("{:.1} fps  •  {} particles", self.fps, PARTICLE_COUNT))
                 .size(11.0).color(Color32::from_rgb(80, 110, 80)),
         );
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // Physics explanation (collapsible)
+        egui::CollapsingHeader::new(
+            egui::RichText::new("How it works")
+                .size(12.0)
+                .color(Color32::from_rgb(160, 175, 220)),
+        )
+        .default_open(false)
+        .show(ui, |ui| {
+            let dim = Color32::from_rgba_unmultiplied(170, 175, 210, 220);
+            let hi  = Color32::from_rgb(160, 190, 255);
+
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("N-body gravity").size(11.0).color(hi).strong());
+            ui.label(egui::RichText::new(
+                "Each planet attracts every particle via \
+                 Newton's inverse-square law:\n\
+                 a = G·M / r²\n\n\
+                 The simulation runs multiple sub-steps per \
+                 frame for numerical stability."
+            ).size(10.0).color(dim));
+
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Sound").size(11.0).color(hi).strong());
+            ui.label(egui::RichText::new(
+                "Each planet emits a sine tone whose \
+                 frequency scales with its mass — heavier \
+                 planets rumble lower.  All tones play \
+                 simultaneously, creating a gravitational chord."
+            ).size(10.0).color(dim));
+
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Colors").size(11.0).color(hi).strong());
+            ui.label(egui::RichText::new(
+                "Planet hues are allocated by the golden-ratio \
+                 step (Δh ≈ 0.618) so consecutive planets are \
+                 always maximally far apart on the color wheel.  \
+                 Particles inherit the color of their nearest planet."
+            ).size(10.0).color(dim));
+        });
     }
 
     // ── Canvas ────────────────────────────────────────────────────────────────

@@ -305,6 +305,56 @@ impl FluidDrumScene {
                     ui.label(RichText::new(format!("{:.0} fps  •  {}×{} grid",
                         self.avg_fps(), GRID_W, GRID_H))
                         .color(Color32::from_gray(110)).size(11.0));
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Physics explanation (collapsible)
+                    egui::CollapsingHeader::new(
+                        RichText::new("How it works")
+                            .size(12.0)
+                            .color(Color32::from_rgb(100, 200, 200)),
+                    )
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let dim = Color32::from_rgba_unmultiplied(150, 200, 195, 220);
+                        let hi  = Color32::from_rgb(80, 220, 200);
+
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("2D Wave Equation").size(11.0).color(hi).strong());
+                        ui.label(RichText::new(
+                            "The membrane solves the wave PDE on a \
+                             200×160 grid each frame:\n\
+                             ∂²u/∂t² = c²·∇²u\n\n\
+                             ∇²u is the discrete Laplacian of \
+                             displacement.  c is wave speed; \
+                             stability requires c ≤ 1/√2 ≈ 0.71."
+                        ).size(10.0).color(dim));
+
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("Wave Modes").size(11.0).color(hi).strong());
+                        ui.label(RichText::new(
+                            "Membrane — fixed (reflective) boundaries.\n\
+                             Ripple — absorbing edges: waves fade out \
+                             instead of reflecting, like an open ocean.\n\
+                             Interference — 9-point stencil: diagonal \
+                             neighbours get half weight, making speed \
+                             anisotropic and creating moiré patterns.\n\
+                             Vortex — after each step a clockwise \
+                             rotational bias nudges energy spiralling inward."
+                        ).size(10.0).color(dim));
+
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("Sound").size(11.0).color(hi).strong());
+                        ui.label(RichText::new(
+                            "Tap = percussive drum hit synthesized \
+                             with exponential decay and harmonics.  \
+                             Drag = continuous tonal excitation whose \
+                             pitch maps to vertical position.  \
+                             Multi-touch: each finger is independent."
+                        ).size(10.0).color(dim));
+                    });
                 });
             });
 
