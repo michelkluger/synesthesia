@@ -180,22 +180,53 @@ impl GravityScene {
     // ── Side panel ────────────────────────────────────────────────────────────
 
     fn draw_panel(&mut self, ui: &mut Ui, now_secs: f64) {
-        ui.add_space(8.0);
+        let sec = Color32::from_rgb(180, 185, 205);
+        let dim = Color32::from_rgba_unmultiplied(155, 160, 180, 220);
+        let hi  = Color32::from_rgb(160, 190, 255);
+
+        ui.add_space(10.0);
         ui.label(
             egui::RichText::new("Gravity Wells")
                 .size(26.0).color(Color32::from_rgb(180, 200, 255)).strong(),
         );
         ui.label(
-            egui::RichText::new(
-                format!("Click to add (max {MAX_PLANETS})  •  Double-click to remove  •  Drag to move")
-            ).size(11.0).color(Color32::from_rgb(100, 120, 150)),
+            egui::RichText::new("Click canvas to add  •  Double-click to remove")
+                .size(11.0).color(Color32::from_rgb(100, 110, 130)),
         );
+
+        ui.add_space(6.0);
+        egui::CollapsingHeader::new(egui::RichText::new("How it works").size(12.0).color(dim))
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("N-body gravity").size(11.0).color(hi).strong());
+                ui.label(egui::RichText::new(
+                    "Each planet attracts every particle via Newton's \
+                     inverse-square law: a = G·M / r²  — more massive \
+                     planets pull harder and from farther away.",
+                ).size(10.0).color(dim));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Sound").size(11.0).color(hi).strong());
+                ui.label(egui::RichText::new(
+                    "Each planet emits a sine tone. Heavier planets \
+                     rumble lower. All tones play together as a \
+                     gravitational chord.",
+                ).size(10.0).color(dim));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Colors").size(11.0).color(hi).strong());
+                ui.label(egui::RichText::new(
+                    "Hues are allocated by the golden-ratio step \
+                     (Δh ≈ 0.618) so each new planet is always \
+                     maximally distinct from the others.",
+                ).size(10.0).color(dim));
+            });
+
         ui.add_space(8.0);
         ui.separator();
         ui.add_space(6.0);
 
         // ── Per-planet controls ───────────────────────────────────────────────
-        ui.label(egui::RichText::new("Planets").strong().color(Color32::from_rgb(200, 210, 235)));
+        ui.label(egui::RichText::new("Planets").size(13.0).color(sec));
         ui.add_space(4.0);
 
         let mut to_remove: Option<usize> = None;
@@ -270,17 +301,17 @@ impl GravityScene {
         ui.add_space(6.0);
 
         // ── Global sliders ────────────────────────────────────────────────────
-        ui.label(egui::RichText::new("Trail Opacity").color(Color32::from_rgb(180, 190, 210)));
+        ui.label(egui::RichText::new("Trail Opacity").color(sec));
         ui.add(egui::Slider::new(&mut self.trail_opacity, 0.1..=1.0));
 
         ui.add_space(4.0);
-        ui.label(egui::RichText::new("Steps / Frame").color(Color32::from_rgb(180, 190, 210)));
+        ui.label(egui::RichText::new("Steps / Frame").color(sec));
         ui.add(egui::Slider::new(&mut self.steps_per_frame, 1..=8));
 
         ui.add_space(4.0);
         ui.checkbox(
             &mut self.show_planets,
-            egui::RichText::new("Show Planets").color(Color32::from_rgb(180, 190, 210)),
+            egui::RichText::new("Show Planets").color(sec),
         );
 
         ui.add_space(8.0);
@@ -304,52 +335,8 @@ impl GravityScene {
 
         ui.label(
             egui::RichText::new(format!("{:.1} fps  •  {} particles", self.fps, PARTICLE_COUNT))
-                .size(11.0).color(Color32::from_rgb(80, 110, 80)),
+                .size(11.0).color(Color32::from_rgb(90, 140, 90)),
         );
-
-        ui.add_space(10.0);
-        ui.separator();
-        ui.add_space(4.0);
-
-        // Physics explanation (collapsible)
-        egui::CollapsingHeader::new(
-            egui::RichText::new("How it works")
-                .size(12.0)
-                .color(Color32::from_rgb(160, 175, 220)),
-        )
-        .default_open(false)
-        .show(ui, |ui| {
-            let dim = Color32::from_rgba_unmultiplied(170, 175, 210, 220);
-            let hi  = Color32::from_rgb(160, 190, 255);
-
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new("N-body gravity").size(11.0).color(hi).strong());
-            ui.label(egui::RichText::new(
-                "Each planet attracts every particle via \
-                 Newton's inverse-square law:\n\
-                 a = G·M / r²\n\n\
-                 The simulation runs multiple sub-steps per \
-                 frame for numerical stability."
-            ).size(10.0).color(dim));
-
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Sound").size(11.0).color(hi).strong());
-            ui.label(egui::RichText::new(
-                "Each planet emits a sine tone whose \
-                 frequency scales with its mass — heavier \
-                 planets rumble lower.  All tones play \
-                 simultaneously, creating a gravitational chord."
-            ).size(10.0).color(dim));
-
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Colors").size(11.0).color(hi).strong());
-            ui.label(egui::RichText::new(
-                "Planet hues are allocated by the golden-ratio \
-                 step (Δh ≈ 0.618) so consecutive planets are \
-                 always maximally far apart on the color wheel.  \
-                 Particles inherit the color of their nearest planet."
-            ).size(10.0).color(dim));
-        });
     }
 
     // ── Canvas ────────────────────────────────────────────────────────────────

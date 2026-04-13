@@ -76,12 +76,48 @@ impl ThereminScene {
             .min_width(240.0)
             .max_width(300.0)
             .show(ctx, |ui| {
-                ui.add_space(12.0);
-                ui.heading(
-                    egui::RichText::new("Theremin Canvas")
-                        .size(22.0)
-                        .color(Color32::from_rgb(200, 180, 255)),
+                let sec = Color32::from_rgb(180, 185, 205);
+                let dim = Color32::from_rgba_unmultiplied(155, 160, 180, 220);
+                let hi  = Color32::from_rgb(180, 150, 255);
+
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new("Theremin")
+                        .size(26.0)
+                        .color(Color32::from_rgb(200, 180, 255))
+                        .strong(),
                 );
+                ui.label(
+                    egui::RichText::new("X = pitch  •  Y = volume")
+                        .size(11.0)
+                        .color(Color32::from_rgb(100, 110, 130)),
+                );
+
+                ui.add_space(6.0);
+                egui::CollapsingHeader::new(egui::RichText::new("How it works").size(12.0).color(dim))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("The Theremin").size(11.0).color(hi).strong());
+                        ui.label(egui::RichText::new(
+                            "Invented by Léon Theremin in 1920 — the first \
+                             electronic instrument played without touch. Two \
+                             antennas sense hand proximity for pitch and volume.",
+                        ).size(10.0).color(dim));
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("X axis — Pitch").size(11.0).color(hi).strong());
+                        ui.label(egui::RichText::new(
+                            "Exponential (log) scale: freq = 110 × (1760/110)^(x/W)\n\
+                             4 octaves A2 → A6, matching how we perceive pitch.",
+                        ).size(10.0).color(dim));
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("Y axis — Volume").size(11.0).color(hi).strong());
+                        ui.label(egui::RichText::new(
+                            "Top = loud, bottom = quiet. Hover = 40% volume; \
+                             hold click = full volume.",
+                        ).size(10.0).color(dim));
+                    });
+
                 ui.add_space(8.0);
                 ui.separator();
 
@@ -106,7 +142,7 @@ impl ThereminScene {
 
                 // Waveform selector
                 ui.add_space(6.0);
-                ui.label("Waveform:");
+                ui.label(egui::RichText::new("Waveform").size(13.0).color(sec));
                 ui.horizontal(|ui| {
                     let selected = self.waveform;
                     if ui
@@ -134,7 +170,7 @@ impl ThereminScene {
 
                 // Trail life slider
                 ui.add_space(6.0);
-                ui.label("Trail life (s):");
+                ui.label(egui::RichText::new("Trail life").size(13.0).color(sec));
                 ui.add(
                     egui::Slider::new(&mut self.trail_life, 1.0..=8.0)
                         .show_value(true)
@@ -143,7 +179,7 @@ impl ThereminScene {
 
                 // Trail width slider
                 ui.add_space(4.0);
-                ui.label("Trail width (px):");
+                ui.label(egui::RichText::new("Trail width").size(13.0).color(sec));
                 ui.add(
                     egui::Slider::new(&mut self.trail_width, 1.0..=8.0)
                         .show_value(true)
@@ -167,7 +203,7 @@ impl ThereminScene {
 
                 // Master volume
                 ui.add_space(6.0);
-                ui.label("Master Volume:");
+                ui.label(egui::RichText::new("Volume").size(13.0).color(sec));
                 ui.add(
                     egui::Slider::new(&mut self.master_volume, 0.0..=1.0)
                         .show_value(true),
@@ -180,8 +216,9 @@ impl ThereminScene {
                 ui.add_space(6.0);
                 let fps = ctx.input(|i| i.unstable_dt).recip();
                 ui.label(
-                    egui::RichText::new(format!("FPS: {:.0}", fps.min(9999.0)))
-                        .color(Color32::from_rgb(100, 200, 100)),
+                    egui::RichText::new(format!("FPS  {:.0}", fps.min(9999.0)))
+                        .size(11.0)
+                        .color(Color32::from_rgb(90, 140, 90)),
                 );
 
                 ui.add_space(4.0);
@@ -193,49 +230,6 @@ impl ThereminScene {
                     );
                 }
 
-                ui.add_space(10.0);
-                ui.separator();
-                ui.add_space(4.0);
-
-                // Physics explanation (collapsible)
-                egui::CollapsingHeader::new(
-                    egui::RichText::new("How it works")
-                        .size(12.0)
-                        .color(Color32::from_rgb(160, 160, 210)),
-                )
-                .default_open(false)
-                .show(ui, |ui| {
-                    let dim = Color32::from_rgba_unmultiplied(170, 165, 200, 220);
-                    let hi  = Color32::from_rgb(180, 150, 255);
-
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new("The Theremin").size(11.0).color(hi).strong());
-                    ui.label(egui::RichText::new(
-                        "Invented by Léon Theremin in 1920, it is \
-                         the first electronic instrument played \
-                         without physical contact — two antennas \
-                         sense hand proximity to control pitch and volume."
-                    ).size(10.0).color(dim));
-
-                    ui.add_space(6.0);
-                    ui.label(egui::RichText::new("X axis — Pitch").size(11.0).color(hi).strong());
-                    ui.label(egui::RichText::new(
-                        "Frequency follows an exponential (log) scale:\n\
-                         freq = 110 × (1760/110)^(x/width)\n\n\
-                         This gives 4 octaves (A2 → A6) spread \
-                         linearly across the canvas, matching \
-                         how human pitch perception works."
-                    ).size(10.0).color(dim));
-
-                    ui.add_space(6.0);
-                    ui.label(egui::RichText::new("Y axis — Volume").size(11.0).color(hi).strong());
-                    ui.label(egui::RichText::new(
-                        "Top = loud, bottom = quiet.  \
-                         Hover = 40% volume; click/hold = full volume.  \
-                         The glowing trail records your path through \
-                         pitch-time space."
-                    ).size(10.0).color(dim));
-                });
             });
 
         // ── Central canvas panel ──

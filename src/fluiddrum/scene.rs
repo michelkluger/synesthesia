@@ -224,18 +224,50 @@ impl FluidDrumScene {
             .resizable(false)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add_space(10.0);
-                    ui.label(RichText::new("Fluid Drum")
-                        .size(30.0).color(Color32::from_rgb(80, 200, 255)).strong());
-                    ui.label(RichText::new("Tap to drum  •  Drag to sing  •  Multi-touch")
-                        .italics().color(Color32::from_rgb(130, 130, 160)).size(12.0));
+                    let sec = Color32::from_rgb(180, 185, 205);
+                    let dim = Color32::from_rgba_unmultiplied(155, 160, 180, 220);
+                    let hi  = Color32::from_rgb(80, 220, 200);
 
                     ui.add_space(10.0);
+                    ui.label(RichText::new("Fluid Drum")
+                        .size(26.0).color(Color32::from_rgb(80, 200, 255)).strong());
+                    ui.label(RichText::new("Tap to drum  •  Drag to sing  •  Multi-touch")
+                        .size(11.0).color(Color32::from_rgb(100, 110, 130)));
+
+                    ui.add_space(6.0);
+                    egui::CollapsingHeader::new(RichText::new("How it works").size(12.0).color(dim))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("2D Wave Equation").size(11.0).color(hi).strong());
+                            ui.label(RichText::new(
+                                "Solves ∂²u/∂t² = c²·∇²u on a 200×160 grid. \
+                                 ∇²u is the discrete Laplacian of displacement. \
+                                 c is wave speed; stability requires c ≤ 1/√2.",
+                            ).size(10.0).color(dim));
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("Wave Modes").size(11.0).color(hi).strong());
+                            ui.label(RichText::new(
+                                "Membrane — reflective boundaries.\n\
+                                 Ripple — absorbing edges, open-ocean feel.\n\
+                                 Interference — 9-point stencil, anisotropic speed.\n\
+                                 Vortex — clockwise rotational bias.",
+                            ).size(10.0).color(dim));
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("Sound").size(11.0).color(hi).strong());
+                            ui.label(RichText::new(
+                                "Tap = drum hit with harmonic decay. \
+                                 Drag = tonal excitation, pitch by Y position. \
+                                 Each finger is independent.",
+                            ).size(10.0).color(dim));
+                        });
+
+                    ui.add_space(8.0);
                     ui.separator();
                     ui.add_space(6.0);
 
                     // ── Drum type ─────────────────────────────────────────────
-                    ui.label(RichText::new("Drum").strong());
+                    ui.label(RichText::new("Drum").size(13.0).color(sec));
                     ui.horizontal_wrapped(|ui| {
                         for &dt in DrumType::ALL {
                             let sel = self.drum_type == dt;
@@ -250,7 +282,7 @@ impl FluidDrumScene {
                     ui.add_space(6.0);
 
                     // ── Wave mode ─────────────────────────────────────────────
-                    ui.label(RichText::new("Wave").strong());
+                    ui.label(RichText::new("Wave").size(13.0).color(sec));
                     ui.horizontal_wrapped(|ui| {
                         for wm in WaveMode::ALL {
                             let sel = &self.wave_mode == wm;
@@ -265,7 +297,7 @@ impl FluidDrumScene {
                     ui.add_space(6.0);
 
                     // ── Color mode ────────────────────────────────────────────
-                    ui.label(RichText::new("Color").strong());
+                    ui.label(RichText::new("Color").size(13.0).color(sec));
                     ui.horizontal_wrapped(|ui| {
                         for cm in ColorMode::ALL {
                             let sel = &self.color_mode == cm;
@@ -280,7 +312,7 @@ impl FluidDrumScene {
                     ui.add_space(6.0);
 
                     // ── Physics sliders ───────────────────────────────────────
-                    ui.label(RichText::new("Physics").strong());
+                    ui.label(RichText::new("Physics").size(13.0).color(sec));
                     ui.label("Steps / frame");
                     ui.add(egui::Slider::new(&mut self.steps_per_frame, 1..=6));
                     ui.label("Damping (ring)");
@@ -304,57 +336,7 @@ impl FluidDrumScene {
                     ui.add_space(4.0);
                     ui.label(RichText::new(format!("{:.0} fps  •  {}×{} grid",
                         self.avg_fps(), GRID_W, GRID_H))
-                        .color(Color32::from_gray(110)).size(11.0));
-
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // Physics explanation (collapsible)
-                    egui::CollapsingHeader::new(
-                        RichText::new("How it works")
-                            .size(12.0)
-                            .color(Color32::from_rgb(100, 200, 200)),
-                    )
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        let dim = Color32::from_rgba_unmultiplied(150, 200, 195, 220);
-                        let hi  = Color32::from_rgb(80, 220, 200);
-
-                        ui.add_space(4.0);
-                        ui.label(RichText::new("2D Wave Equation").size(11.0).color(hi).strong());
-                        ui.label(RichText::new(
-                            "The membrane solves the wave PDE on a \
-                             200×160 grid each frame:\n\
-                             ∂²u/∂t² = c²·∇²u\n\n\
-                             ∇²u is the discrete Laplacian of \
-                             displacement.  c is wave speed; \
-                             stability requires c ≤ 1/√2 ≈ 0.71."
-                        ).size(10.0).color(dim));
-
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("Wave Modes").size(11.0).color(hi).strong());
-                        ui.label(RichText::new(
-                            "Membrane — fixed (reflective) boundaries.\n\
-                             Ripple — absorbing edges: waves fade out \
-                             instead of reflecting, like an open ocean.\n\
-                             Interference — 9-point stencil: diagonal \
-                             neighbours get half weight, making speed \
-                             anisotropic and creating moiré patterns.\n\
-                             Vortex — after each step a clockwise \
-                             rotational bias nudges energy spiralling inward."
-                        ).size(10.0).color(dim));
-
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("Sound").size(11.0).color(hi).strong());
-                        ui.label(RichText::new(
-                            "Tap = percussive drum hit synthesized \
-                             with exponential decay and harmonics.  \
-                             Drag = continuous tonal excitation whose \
-                             pitch maps to vertical position.  \
-                             Multi-touch: each finger is independent."
-                        ).size(10.0).color(dim));
-                    });
+                        .size(11.0).color(Color32::from_rgb(90, 140, 90)));
                 });
             });
 

@@ -285,32 +285,59 @@ impl CymaticsScene {
     // -----------------------------------------------------------------------
 
     fn draw_panel(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(12.0);
+        let sec = Color32::from_rgb(180, 185, 205);
+        let dim = Color32::from_rgba_unmultiplied(155, 160, 180, 220);
+        let hi  = Color32::from_rgb(220, 200, 100);
 
-        // Title
-        ui.vertical_centered(|ui| {
-            ui.label(
-                egui::RichText::new("CYMATICS")
-                    .size(28.0)
-                    .color(Color32::from_rgb(255, 200, 60))
-                    .strong(),
-            );
-            ui.label(
-                egui::RichText::new("Chladni Figure Simulator")
-                    .size(11.0)
-                    .color(Color32::from_rgba_unmultiplied(180, 180, 180, 160)),
-            );
-        });
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new("Cymatics")
+                .size(26.0)
+                .color(Color32::from_rgb(255, 200, 60))
+                .strong(),
+        );
+        ui.label(
+            egui::RichText::new("Chladni Figure Simulator")
+                .size(11.0)
+                .color(Color32::from_rgb(100, 110, 130)),
+        );
 
-        ui.add_space(16.0);
+        ui.add_space(6.0);
+        egui::CollapsingHeader::new(egui::RichText::new("How it works").size(12.0).color(dim))
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Chladni Figures").size(11.0).color(hi).strong());
+                ui.label(egui::RichText::new(
+                    "In 1787, Ernst Chladni bowed a metal plate and scattered \
+                     sand — the grains collected into geometric patterns now \
+                     called Chladni figures.",
+                ).size(10.0).color(dim));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Displacement field").size(11.0).color(hi).strong());
+                ui.label(egui::RichText::new(
+                    "Z(x,y) = cos(m·π·x/W)·cos(n·π·y/H)\n\
+                            − cos(n·π·x/W)·cos(m·π·y/H)\n\n\
+                     m, n grow with frequency. Nodal lines are where Z = 0 \
+                     — the plate is stationary there.",
+                ).size(10.0).color(dim));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Particles").size(11.0).color(hi).strong());
+                ui.label(egui::RichText::new(
+                    "3 000 sand grains follow −∇|Z|, migrating toward \
+                     nodal lines. Brownian jitter keeps them alive once settled.",
+                ).size(10.0).color(dim));
+            });
+
+        ui.add_space(8.0);
         ui.separator();
-        ui.add_space(12.0);
+        ui.add_space(8.0);
 
         // --- Simulation speed ---
         ui.label(
             egui::RichText::new("Simulation Speed")
                 .size(13.0)
-                .color(Color32::from_rgb(200, 200, 200)),
+                .color(sec),
         );
         ui.add(
             egui::Slider::new(&mut self.steps_per_frame, 1..=32)
@@ -331,7 +358,7 @@ impl CymaticsScene {
         ui.label(
             egui::RichText::new("Beautiful Frequencies")
                 .size(13.0)
-                .color(Color32::from_rgb(200, 200, 200)),
+                .color(sec),
         );
         ui.add_space(4.0);
 
@@ -368,7 +395,7 @@ impl CymaticsScene {
         ui.label(
             egui::RichText::new("Frequency")
                 .size(13.0)
-                .color(Color32::from_rgb(200, 200, 200)),
+                .color(sec),
         );
 
         let freq_before = self.frequency;
@@ -394,7 +421,7 @@ impl CymaticsScene {
         ui.label(
             egui::RichText::new("Volume")
                 .size(13.0)
-                .color(Color32::from_rgb(200, 200, 200)),
+                .color(sec),
         );
 
         let vol_percent_before = (self.volume * 100.0) as i32;
@@ -440,7 +467,7 @@ impl CymaticsScene {
         ui.label(
             egui::RichText::new("Color Scheme")
                 .size(13.0)
-                .color(Color32::from_rgb(200, 200, 200)),
+                .color(sec),
         );
 
         for scheme in [
@@ -467,77 +494,27 @@ impl CymaticsScene {
             &mut self.show_nodal_lines,
             egui::RichText::new("Show Nodal Lines")
                 .size(13.0)
-                .color(Color32::from_rgb(200, 200, 200)),
+                .color(sec),
         );
 
         ui.add_space(12.0);
         ui.separator();
         ui.add_space(10.0);
 
-        // --- FPS ---
+        // --- Status ---
         let avg_fps: f32 = self.fps_history.iter().sum::<f32>() / self.fps_history.len() as f32;
         ui.label(
             egui::RichText::new(format!("FPS  {:.0}", avg_fps))
-                .size(12.0)
-                .color(Color32::from_rgba_unmultiplied(140, 180, 140, 200)),
+                .size(11.0)
+                .color(Color32::from_rgb(90, 140, 90)),
         );
-
-        // --- Audio status ---
         let audio_label = if self.audio.is_some() {
-            egui::RichText::new("Audio  ON")
-                .size(12.0)
-                .color(Color32::from_rgba_unmultiplied(140, 220, 140, 200))
+            egui::RichText::new("Audio  ●  on").size(11.0).color(Color32::from_rgb(90, 200, 120))
         } else {
-            egui::RichText::new("Audio  OFF (no device)")
-                .size(12.0)
-                .color(Color32::from_rgba_unmultiplied(220, 140, 140, 200))
+            egui::RichText::new("Audio  ○  no device").size(11.0).color(Color32::from_rgb(200, 100, 100))
         };
         ui.label(audio_label);
-
-        ui.add_space(12.0);
-
-        ui.add_space(12.0);
-        ui.separator();
-        ui.add_space(4.0);
-
-        // Physics explanation (collapsible)
-        egui::CollapsingHeader::new(
-            egui::RichText::new("How it works")
-                .size(12.0)
-                .color(Color32::from_rgb(160, 160, 180)),
-        )
-        .default_open(false)
-        .show(ui, |ui| {
-            let dim = Color32::from_rgba_unmultiplied(160, 165, 185, 220);
-            let hi  = Color32::from_rgb(220, 200, 100);
-
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new("Chladni Figures").size(11.0).color(hi).strong());
-            ui.label(egui::RichText::new(
-                "In 1787, Ernst Chladni bowed a metal plate \
-                 and scattered sand — the grains collected into \
-                 geometric patterns now called Chladni figures."
-            ).size(10.0).color(dim));
-
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Displacement field").size(11.0).color(hi).strong());
-            ui.label(egui::RichText::new(
-                "Z(x,y) = cos(m·π·x/W)·cos(n·π·y/H)\n\
-                        − cos(n·π·x/W)·cos(m·π·y/H)\n\n\
-                 m and n are mode numbers that grow with \
-                 frequency.  Nodal lines are where Z = 0 — \
-                 the plate is stationary there."
-            ).size(10.0).color(dim));
-
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Particle physics").size(11.0).color(hi).strong());
-            ui.label(egui::RichText::new(
-                "3 000 virtual sand grains feel a force \
-                 proportional to −∇|Z|, pushing them toward \
-                 the nearest nodal line.  Brownian jitter \
-                 keeps them alive once settled."
-            ).size(10.0).color(dim));
-        });
+        ui.add_space(8.0);
     }
 
     pub fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -571,7 +548,9 @@ impl CymaticsScene {
             .max_width(300.0)
             .resizable(false)
             .show(ctx, |ui| {
-                self.draw_panel(ui);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.draw_panel(ui);
+                });
             });
 
         egui::CentralPanel::default()
