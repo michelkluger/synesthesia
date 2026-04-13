@@ -7,6 +7,7 @@ use egui::{
 use std::sync::{Arc, Mutex};
 
 use super::audio::{AudioEngine, AudioState, Waveform};
+use super::tutorial::{TutorialMode, TutorialSong, TutorialScale, SONGS, SCALES, ADVANCE_SECS, TOLERANCE_PX};
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,8 @@ pub struct ThereminScene {
     current_vol: f32,
     mouse_active: bool,
     waveform: Waveform,
+
+    tutorial: Option<TutorialMode>,
 }
 
 impl ThereminScene {
@@ -57,6 +60,7 @@ impl ThereminScene {
             current_vol: 0.0,
             mouse_active: false,
             waveform: Waveform::Sine,
+            tutorial: None,
         }
     }
 
@@ -76,6 +80,7 @@ impl ThereminScene {
             .min_width(240.0)
             .max_width(300.0)
             .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
                 let sec = Color32::from_rgb(180, 185, 205);
                 let dim = Color32::from_rgba_unmultiplied(155, 160, 180, 220);
                 let hi  = Color32::from_rgb(180, 150, 255);
@@ -211,6 +216,77 @@ impl ThereminScene {
 
                 ui.add_space(10.0);
                 ui.separator();
+                ui.add_space(6.0);
+
+                // ── Tutorial / Learn ──────────────────────────────────────────
+                ui.label(egui::RichText::new("Tutorial").size(13.0).color(sec));
+                ui.add_space(4.0);
+
+                // Song buttons
+                ui.label(egui::RichText::new("Songs").size(11.0)
+                    .color(Color32::from_rgb(140, 145, 165)));
+                let mut new_tut: Option<TutorialMode> = None;
+                for (i, song) in SONGS.iter().enumerate() {
+                    let active = matches!(&self.tutorial, Some(TutorialMode::Song { song_idx, .. }) if *song_idx == i);
+                    let label = if active {
+                        let prog = if let Some(TutorialMode::Song { note_idx, .. }) = &self.tutorial {
+                            format!("{} [{}/{}]", song.name, note_idx, song.notes.len())
+                        } else { song.name.to_string() };
+                        egui::RichText::new(prog).size(12.0).color(Color32::from_rgb(255, 220, 80))
+                    } else {
+                        egui::RichText::new(song.name).size(12.0).color(Color32::from_rgb(200, 200, 220))
+                    };
+                    if ui.selectable_label(active, label)
+                        .on_hover_text(song.description)
+                        .clicked()
+                    {
+                        new_tut = Some(TutorialMode::Song { song_idx: i, note_idx: 0, time_on: 0.0 });
+                    }
+                }
+
+                ui.add_space(6.0);
+
+                // Scale buttons
+                ui.label(egui::RichText::new("Scales").size(11.0)
+                    .color(Color32::from_rgb(140, 145, 165)));
+                for (i, scale) in SCALES.iter().enumerate() {
+                    let active = matches!(&self.tutorial, Some(TutorialMode::Scale(idx)) if *idx == i);
+                    let label = egui::RichText::new(scale.name).size(12.0).color(
+                        if active { Color32::from_rgb(100, 230, 180) }
+                        else { Color32::from_rgb(200, 200, 220) }
+                    );
+                    if ui.selectable_label(active, label)
+                        .on_hover_text(scale.description)
+                        .clicked()
+                    {
+                        new_tut = Some(TutorialMode::Scale(i));
+                    }
+                }
+
+                // Apply new tutorial selection
+                if let Some(t) = new_tut {
+                    // Toggle off if clicking the already-active one
+                    let same = match (&self.tutorial, &t) {
+                        (Some(TutorialMode::Song { song_idx: a, .. }), TutorialMode::Song { song_idx: b, .. }) => a == b,
+                        (Some(TutorialMode::Scale(a)), TutorialMode::Scale(b)) => a == b,
+                        _ => false,
+                    };
+                    self.tutorial = if same { None } else { Some(t) };
+                }
+
+                // Stop button
+                if self.tutorial.is_some() {
+                    ui.add_space(4.0);
+                    if ui.add(egui::Button::new(
+                        egui::RichText::new("Stop Tutorial").size(12.0)
+                            .color(Color32::from_rgb(200, 100, 100))
+                    ).fill(Color32::from_rgba_unmultiplied(60, 20, 20, 180))).clicked() {
+                        self.tutorial = None;
+                    }
+                }
+
+                ui.add_space(10.0);
+                ui.separator();
 
                 // FPS
                 ui.add_space(6.0);
@@ -230,6 +306,7 @@ impl ThereminScene {
                     );
                 }
 
+                }); // end ScrollArea
             });
 
         // ── Central canvas panel ──
@@ -308,6 +385,12 @@ impl ThereminScene {
             }
             self.trail.retain(|p| p.age < self.trail_life);
 
+            // Tutorial: tick note advancement, draw overlay (under the trail)
+            self.tick_tutorial(mouse_pos, rect, dt);
+            if let Some(ref tut) = self.tutorial {
+                render_tutorial_overlay(tut, &painter, rect, self.pulse_t, mouse_pos);
+            }
+
             // Render trail
             render_trail(&painter, &self.trail, self.trail_life, self.trail_width);
 
@@ -331,9 +414,176 @@ impl ThereminScene {
         // Request continuous repaint
         ctx.request_repaint();
     }
+
+    // ── Tutorial helpers ──────────────────────────────────────────────────────
+
+    fn tick_tutorial(&mut self, mouse_pos: Option<Pos2>, rect: Rect, dt: f32) {
+        let Some(TutorialMode::Song { song_idx, note_idx, time_on }) = &mut self.tutorial
+        else { return };
+        let song = &SONGS[*song_idx];
+        if *note_idx >= song.notes.len() { return; }
+        let target_x = freq_to_canvas_x(song.notes[*note_idx].freq, rect);
+        match mouse_pos {
+            Some(pos) if rect.contains(pos) && (pos.x - target_x).abs() < TOLERANCE_PX => {
+                *time_on += dt;
+                if *time_on >= ADVANCE_SECS {
+                    *note_idx += 1;
+                    *time_on = 0.0;
+                }
+            }
+            _ => { *time_on = (*time_on - dt * 4.0).max(0.0); }
+        }
+    }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Convert a frequency to a canvas X coordinate using the theremin's log mapping.
+fn freq_to_canvas_x(freq: f32, rect: Rect) -> f32 {
+    let ratio = (MAX_FREQ / MIN_FREQ).log2();
+    let rel   = ((freq / MIN_FREQ).log2() / ratio).clamp(0.0, 1.0);
+    rect.left() + rel * rect.width()
+}
+
+fn render_tutorial_overlay(
+    mode: &TutorialMode, painter: &Painter, rect: Rect, pulse_t: f32, mouse_pos: Option<Pos2>,
+) {
+    match mode {
+        TutorialMode::Song { song_idx, note_idx, time_on } =>
+            render_song_overlay(painter, rect, &SONGS[*song_idx], *note_idx, *time_on, pulse_t),
+        TutorialMode::Scale(idx) =>
+            render_scale_overlay(painter, rect, &SCALES[*idx], mouse_pos),
+    }
+}
+
+fn render_song_overlay(
+    painter: &Painter, rect: Rect, song: &TutorialSong,
+    note_idx: usize, time_on: f32, pulse_t: f32,
+) {
+    let cy    = rect.center().y;
+    let total = song.notes.len();
+
+    // Faint centre guide line
+    painter.line_segment(
+        [Pos2::new(rect.left(), cy), Pos2::new(rect.right(), cy)],
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(100, 100, 130, 30)),
+    );
+
+    for (i, note) in song.notes.iter().enumerate() {
+        let x   = freq_to_canvas_x(note.freq, rect);
+        let pos = Pos2::new(x, cy);
+        let hue = freq_to_hue(note.freq);
+
+        if i < note_idx {
+            // Already played — small green tick
+            painter.circle_filled(pos, 4.0, Color32::from_rgba_unmultiplied(80, 200, 100, 100));
+        } else if i == note_idx && note_idx < total {
+            // Current target
+            let pulse    = (pulse_t.sin() * 0.5 + 0.5) * 0.4 + 0.6;
+            let progress = (time_on / ADVANCE_SECS).clamp(0.0, 1.0);
+            let col      = hue_to_color(hue, 1.0, 1.0, 230);
+
+            // Tolerance zone (faint band)
+            painter.rect_filled(
+                egui::Rect::from_center_size(Pos2::new(x, rect.center().y),
+                    Vec2::new(TOLERANCE_PX * 2.0, rect.height())),
+                0.0, Color32::from_rgba_unmultiplied(200, 200, 255, 7),
+            );
+            // Vertical guide
+            painter.line_segment(
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                Stroke::new(1.0, Color32::from_rgba_unmultiplied(180, 180, 255, 25)),
+            );
+            // Progress fill circle
+            painter.circle_filled(pos, 26.0, Color32::from_rgba_unmultiplied(40, 40, 70, 120));
+            if progress > 0.0 {
+                let g = (200.0 * progress) as u8;
+                painter.circle_filled(pos, 26.0 * progress,
+                    Color32::from_rgba_unmultiplied(60, g, 80, (progress * 160.0) as u8));
+            }
+            // Outer pulsing ring
+            painter.circle_stroke(pos, 22.0 * pulse, Stroke::new(2.5, col));
+            // Note label
+            painter.text(Pos2::new(x, cy - 40.0), egui::Align2::CENTER_BOTTOM,
+                note.label, egui::FontId::proportional(16.0), col);
+            // "Hold!" cue
+            if time_on > 0.06 && progress < 1.0 {
+                painter.text(Pos2::new(x, cy + 40.0), egui::Align2::CENTER_TOP,
+                    "Hold!", egui::FontId::proportional(12.0),
+                    Color32::from_rgba_unmultiplied(210, 240, 150, 210));
+            }
+
+        } else if i == note_idx + 1 {
+            // Next note hint
+            let col = hue_to_color(hue, 0.7, 0.8, 90);
+            painter.circle_stroke(pos, 11.0, Stroke::new(1.5, col));
+            painter.text(Pos2::new(x, cy - 20.0), egui::Align2::CENTER_BOTTOM,
+                note.label, egui::FontId::proportional(11.0),
+                Color32::from_rgba_unmultiplied(160, 160, 200, 110));
+        } else {
+            // Future — tiny dim dot
+            painter.circle_filled(pos, 3.0, hue_to_color(hue, 0.5, 0.6, 45));
+        }
+    }
+
+    // Progress counter (top-left)
+    let text = if note_idx >= total {
+        format!("Complete!  {}  {}/{}", song.name, total, total)
+    } else {
+        format!("{}   {}/{}", song.name, note_idx, total)
+    };
+    painter.text(Pos2::new(rect.left() + 10.0, rect.top() + 10.0),
+        egui::Align2::LEFT_TOP, &text, egui::FontId::proportional(12.0),
+        Color32::from_rgba_unmultiplied(180, 180, 210, 180));
+
+    if note_idx >= total {
+        painter.text(rect.center(), egui::Align2::CENTER_CENTER,
+            "All notes played!",
+            egui::FontId::proportional(28.0),
+            Color32::from_rgba_unmultiplied(180, 255, 150, 230));
+    }
+}
+
+fn render_scale_overlay(
+    painter: &Painter, rect: Rect, scale: &TutorialScale, mouse_pos: Option<Pos2>,
+) {
+    let cursor_x = mouse_pos
+        .filter(|p| rect.contains(*p))
+        .map(|p| p.x);
+
+    for (i, &(freq, label)) in scale.notes.iter().enumerate() {
+        let x       = freq_to_canvas_x(freq, rect);
+        let is_root = i == 0 || i + 1 == scale.notes.len();
+        let near    = cursor_x.map(|cx| (cx - x).abs() < TOLERANCE_PX * 1.5).unwrap_or(false);
+        let hue     = freq_to_hue(freq);
+
+        let alpha   = if near { 110u8 } else if is_root { 55 } else { 32 };
+        let band_w  = if near { 38.0f32 } else { 22.0 };
+
+        // Coloured band
+        painter.rect_filled(
+            egui::Rect::from_center_size(Pos2::new(x, rect.center().y),
+                Vec2::new(band_w, rect.height())),
+            0.0, hue_to_color(hue, 0.85, 0.9, alpha),
+        );
+        // Centre line
+        painter.line_segment(
+            [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+            Stroke::new(if near { 1.5 } else { 0.5 },
+                hue_to_color(hue, 1.0, 1.0, if near { 190 } else { 55 })),
+        );
+        // Label
+        let font_sz = if near { 14.0 } else if is_root { 13.0 } else { 11.0 };
+        let l_alpha = if near { 255u8 } else if is_root { 200 } else { 130 };
+        painter.text(Pos2::new(x, rect.top() + 18.0), egui::Align2::CENTER_CENTER,
+            label, egui::FontId::proportional(font_sz),
+            hue_to_color(hue, 0.5, 1.0, l_alpha));
+    }
+
+    painter.text(Pos2::new(rect.left() + 10.0, rect.top() + 10.0),
+        egui::Align2::LEFT_TOP, scale.name, egui::FontId::proportional(12.0),
+        Color32::from_rgba_unmultiplied(180, 180, 210, 160));
+}
 
 /// Map frequency to hue [0, 0.75]  (red = low, violet = high)
 fn freq_to_hue(freq: f32) -> f32 {
