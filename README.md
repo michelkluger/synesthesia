@@ -24,11 +24,11 @@ Chladni patterns — sprinkle virtual sand on a vibrating plate and watch it mig
 Move your cursor (or your fingers) across the canvas to play. X controls pitch on an exponential frequency scale — A2 to A6, four full octaves. Y controls volume. Hold to sustain; hover quietly to explore.
 
 <img width="1749" height="1003" alt="image" src="https://github.com/user-attachments/assets/120bed1e-1ada-4877-9903-d1614ab0fb14" />
-<img width="1759" height="1019" alt="image" src="https://github.com/user-attachments/assets/f8dfe424-1da1-4654-a7c1-45ad157a2dad" />
-
-
 
 **Multi-touch:** Place two fingers to play two simultaneous notes — full two-voice synthesis, independent oscillators, each finger leaving its own coloured trail.
+
+<img width="1759" height="1019" alt="image" src="https://github.com/user-attachments/assets/f8dfe424-1da1-4654-a7c1-45ad157a2dad" />
+
 
 **Tutorial mode:** Learn songs step-by-step with a guided overlay that shows you exactly where to place your hand. Or hit **▶** to watch the computer perform the song for you with an animated golden cursor.
 
