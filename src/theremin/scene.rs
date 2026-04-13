@@ -77,8 +77,8 @@ impl ThereminScene {
 
         // ── Right-side panel ──
         egui::SidePanel::right("controls")
-            .min_width(240.0)
-            .max_width(300.0)
+            .min_width(260.0)
+            .max_width(320.0)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                 let sec = Color32::from_rgb(180, 185, 205);
@@ -231,6 +231,34 @@ impl ThereminScene {
                     let is_autoplay = matches!(&self.tutorial, Some(TutorialMode::Autoplay { song_idx, .. }) if *song_idx == i);
 
                     ui.horizontal(|ui| {
+                        // ── Watch (autoplay) button — fixed width so it always shows ──
+                        let watch_col = if is_autoplay {
+                            Color32::from_rgb(255, 200, 50)
+                        } else {
+                            Color32::from_rgb(110, 100, 70)
+                        };
+                        let watch_btn = egui::Button::new(
+                            egui::RichText::new("▶").size(11.0).color(watch_col)
+                        )
+                        .min_size(egui::Vec2::new(22.0, 0.0))
+                        .fill(if is_autoplay {
+                            Color32::from_rgba_unmultiplied(70, 55, 10, 180)
+                        } else {
+                            Color32::from_rgba_unmultiplied(35, 30, 20, 120)
+                        });
+                        if ui.add(watch_btn)
+                            .on_hover_text("Watch computer play")
+                            .clicked()
+                        {
+                            new_tut = Some(TutorialMode::Autoplay {
+                                song_idx:     i,
+                                note_idx:     0,
+                                time_on_note: 0.0,
+                                cursor_x:     0.0,
+                                cursor_y:     0.0,
+                            });
+                        }
+
                         // ── Practice label ───────────────────────────────────
                         let label = if is_song {
                             let prog = if let Some(TutorialMode::Song { note_idx, .. }) = &self.tutorial {
@@ -245,28 +273,6 @@ impl ThereminScene {
                             .clicked()
                         {
                             new_tut = Some(TutorialMode::Song { song_idx: i, note_idx: 0, time_on: 0.0 });
-                        }
-
-                        // ── Watch (autoplay) button ───────────────────────────
-                        let watch_col = if is_autoplay {
-                            Color32::from_rgb(255, 200, 50)
-                        } else {
-                            Color32::from_rgb(130, 120, 90)
-                        };
-                        if ui.selectable_label(
-                            is_autoplay,
-                            egui::RichText::new("▶").size(12.0).color(watch_col),
-                        )
-                        .on_hover_text("Watch computer play")
-                        .clicked()
-                        {
-                            new_tut = Some(TutorialMode::Autoplay {
-                                song_idx:     i,
-                                note_idx:     0,
-                                time_on_note: 0.0,
-                                cursor_x:     0.0,
-                                cursor_y:     0.0,
-                            });
                         }
                     });
                 }
