@@ -227,21 +227,48 @@ impl ThereminScene {
                     .color(Color32::from_rgb(140, 145, 165)));
                 let mut new_tut: Option<TutorialMode> = None;
                 for (i, song) in SONGS.iter().enumerate() {
-                    let active = matches!(&self.tutorial, Some(TutorialMode::Song { song_idx, .. }) if *song_idx == i);
-                    let label = if active {
-                        let prog = if let Some(TutorialMode::Song { note_idx, .. }) = &self.tutorial {
-                            format!("{} [{}/{}]", song.name, note_idx, song.notes.len())
-                        } else { song.name.to_string() };
-                        egui::RichText::new(prog).size(12.0).color(Color32::from_rgb(255, 220, 80))
-                    } else {
-                        egui::RichText::new(song.name).size(12.0).color(Color32::from_rgb(200, 200, 220))
-                    };
-                    if ui.selectable_label(active, label)
-                        .on_hover_text(song.description)
+                    let is_song     = matches!(&self.tutorial, Some(TutorialMode::Song     { song_idx, .. }) if *song_idx == i);
+                    let is_autoplay = matches!(&self.tutorial, Some(TutorialMode::Autoplay { song_idx, .. }) if *song_idx == i);
+
+                    ui.horizontal(|ui| {
+                        // ── Practice label ───────────────────────────────────
+                        let label = if is_song {
+                            let prog = if let Some(TutorialMode::Song { note_idx, .. }) = &self.tutorial {
+                                format!("{} [{}/{}]", song.name, note_idx, song.notes.len())
+                            } else { song.name.to_string() };
+                            egui::RichText::new(prog).size(12.0).color(Color32::from_rgb(255, 220, 80))
+                        } else {
+                            egui::RichText::new(song.name).size(12.0).color(Color32::from_rgb(200, 200, 220))
+                        };
+                        if ui.selectable_label(is_song, label)
+                            .on_hover_text(song.description)
+                            .clicked()
+                        {
+                            new_tut = Some(TutorialMode::Song { song_idx: i, note_idx: 0, time_on: 0.0 });
+                        }
+
+                        // ── Watch (autoplay) button ───────────────────────────
+                        let watch_col = if is_autoplay {
+                            Color32::from_rgb(255, 200, 50)
+                        } else {
+                            Color32::from_rgb(130, 120, 90)
+                        };
+                        if ui.selectable_label(
+                            is_autoplay,
+                            egui::RichText::new("▶").size(12.0).color(watch_col),
+                        )
+                        .on_hover_text("Watch computer play")
                         .clicked()
-                    {
-                        new_tut = Some(TutorialMode::Song { song_idx: i, note_idx: 0, time_on: 0.0 });
-                    }
+                        {
+                            new_tut = Some(TutorialMode::Autoplay {
+                                song_idx:     i,
+                                note_idx:     0,
+                                time_on_note: 0.0,
+                                cursor_x:     0.0,
+                                cursor_y:     0.0,
+                            });
+                        }
+                    });
                 }
 
                 ui.add_space(6.0);
@@ -267,7 +294,8 @@ impl ThereminScene {
                 if let Some(t) = new_tut {
                     // Toggle off if clicking the already-active one
                     let same = match (&self.tutorial, &t) {
-                        (Some(TutorialMode::Song { song_idx: a, .. }), TutorialMode::Song { song_idx: b, .. }) => a == b,
+                        (Some(TutorialMode::Song     { song_idx: a, .. }), TutorialMode::Song     { song_idx: b, .. }) => a == b,
+                        (Some(TutorialMode::Autoplay { song_idx: a, .. }), TutorialMode::Autoplay { song_idx: b, .. }) => a == b,
                         (Some(TutorialMode::Scale(a)), TutorialMode::Scale(b)) => a == b,
                         _ => false,
                     };
@@ -337,6 +365,9 @@ impl ThereminScene {
 
             self.mouse_active = over_canvas && mouse_pos.is_some();
 
+            // Don't let mouse override audio while autoplay is running.
+            let is_autoplay = matches!(&self.tutorial, Some(TutorialMode::Autoplay { .. }));
+
             if self.mouse_active {
                 let pos = mouse_pos.unwrap();
                 let rel_x = (pos.x - rect.left()) / rect.width();
@@ -356,23 +387,27 @@ impl ThereminScene {
                 self.current_freq = freq;
                 self.current_vol = vol;
 
-                // Push trail point
-                self.trail.push(TrailPoint {
-                    pos,
-                    freq,
-                    vol: vol_raw, // store raw for color weight
-                    age: 0.0,
-                });
-
-                // Update audio
-                if let Ok(mut s) = self.audio.state.try_lock() {
-                    s.target_freq = freq;
-                    s.target_vol = vol;
-                    s.active = true;
-                    s.waveform = self.waveform;
+                // Push trail point (skip during autoplay — virtual cursor has its own trail)
+                if !is_autoplay {
+                    self.trail.push(TrailPoint {
+                        pos,
+                        freq,
+                        vol: vol_raw,
+                        age: 0.0,
+                    });
                 }
-            } else {
-                // Silence
+
+                // Update audio (only when autoplay is not driving it)
+                if !is_autoplay {
+                    if let Ok(mut s) = self.audio.state.try_lock() {
+                        s.target_freq = freq;
+                        s.target_vol = vol;
+                        s.active = true;
+                        s.waveform = self.waveform;
+                    }
+                }
+            } else if !is_autoplay {
+                // Silence only when autoplay is not running
                 if let Ok(mut s) = self.audio.state.try_lock() {
                     s.active = false;
                     s.target_vol = 0.0;
@@ -418,20 +453,85 @@ impl ThereminScene {
     // ── Tutorial helpers ──────────────────────────────────────────────────────
 
     fn tick_tutorial(&mut self, mouse_pos: Option<Pos2>, rect: Rect, dt: f32) {
-        let Some(TutorialMode::Song { song_idx, note_idx, time_on }) = &mut self.tutorial
-        else { return };
-        let song = &SONGS[*song_idx];
-        if *note_idx >= song.notes.len() { return; }
-        let target_x = freq_to_canvas_x(song.notes[*note_idx].freq, rect);
-        match mouse_pos {
-            Some(pos) if rect.contains(pos) && (pos.x - target_x).abs() < TOLERANCE_PX => {
-                *time_on += dt;
-                if *time_on >= ADVANCE_SECS {
-                    *note_idx += 1;
-                    *time_on = 0.0;
+        // ── Song mode: user plays ───────────────────────────────────────────────
+        if let Some(TutorialMode::Song { song_idx, note_idx, time_on }) = &mut self.tutorial {
+            let song = &SONGS[*song_idx];
+            if *note_idx < song.notes.len() {
+                let target_x = freq_to_canvas_x(song.notes[*note_idx].freq, rect);
+                match mouse_pos {
+                    Some(pos) if rect.contains(pos) && (pos.x - target_x).abs() < TOLERANCE_PX => {
+                        *time_on += dt;
+                        if *time_on >= ADVANCE_SECS {
+                            *note_idx += 1;
+                            *time_on = 0.0;
+                        }
+                    }
+                    _ => { *time_on = (*time_on - dt * 4.0).max(0.0); }
                 }
             }
-            _ => { *time_on = (*time_on - dt * 4.0).max(0.0); }
+            return;
+        }
+
+        // ── Autoplay mode: computer plays ───────────────────────────────────────
+        // Phase 1: update state; collect audio command (avoids double-borrow of self).
+        enum Cmd { Play(f32), Silence, Noop }
+        let cmd = if let Some(TutorialMode::Autoplay {
+            song_idx, note_idx, time_on_note, cursor_x, cursor_y,
+        }) = &mut self.tutorial {
+            let song = &SONGS[*song_idx];
+            if *note_idx >= song.notes.len() {
+                Cmd::Silence
+            } else {
+                let note      = &song.notes[*note_idx];
+                let beat_dur  = 60.0 / song.bpm * note.beats;
+                let note_freq = note.freq;
+                let tx        = freq_to_canvas_x(note_freq, rect);
+
+                // Smooth cursor lerp toward the target note X
+                *cursor_x += (tx - *cursor_x) * (dt * 10.0).min(1.0);
+                *cursor_y  = rect.center().y;
+
+                // Add a trail point at the virtual cursor position
+                // (handled after this block via a separate push)
+                *time_on_note += dt;
+                if *time_on_note >= beat_dur {
+                    *time_on_note -= beat_dur;
+                    *note_idx += 1;
+                }
+
+                Cmd::Play(note_freq)
+            }
+        } else {
+            Cmd::Noop
+        };
+
+        // Phase 2: apply audio (self.tutorial borrow released above).
+        match cmd {
+            Cmd::Play(freq) => {
+                let vol = 0.72 * self.master_volume;
+                if let Ok(mut s) = self.audio.state.try_lock() {
+                    s.target_freq = freq;
+                    s.target_vol  = vol;
+                    s.active      = true;
+                    s.waveform    = self.waveform;
+                }
+                // Push a trail point at the virtual cursor so it leaves a glow
+                if let Some(TutorialMode::Autoplay { cursor_x, cursor_y, .. }) = &self.tutorial {
+                    self.trail.push(TrailPoint {
+                        pos:  Pos2::new(*cursor_x, *cursor_y),
+                        freq,
+                        vol:  0.8,
+                        age:  0.0,
+                    });
+                }
+            }
+            Cmd::Silence => {
+                if let Ok(mut s) = self.audio.state.try_lock() {
+                    s.active     = false;
+                    s.target_vol = 0.0;
+                }
+            }
+            Cmd::Noop => {}
         }
     }
 }
@@ -451,6 +551,8 @@ fn render_tutorial_overlay(
     match mode {
         TutorialMode::Song { song_idx, note_idx, time_on } =>
             render_song_overlay(painter, rect, &SONGS[*song_idx], *note_idx, *time_on, pulse_t),
+        TutorialMode::Autoplay { song_idx, note_idx, cursor_x, cursor_y, .. } =>
+            render_autoplay_overlay(painter, rect, &SONGS[*song_idx], *note_idx, *cursor_x, *cursor_y, pulse_t),
         TutorialMode::Scale(idx) =>
             render_scale_overlay(painter, rect, &SCALES[*idx], mouse_pos),
     }
@@ -541,6 +643,92 @@ fn render_song_overlay(
             "All notes played!",
             egui::FontId::proportional(28.0),
             Color32::from_rgba_unmultiplied(180, 255, 150, 230));
+    }
+}
+
+fn render_autoplay_overlay(
+    painter: &Painter, rect: Rect, song: &TutorialSong,
+    note_idx: usize, cursor_x: f32, cursor_y: f32, pulse_t: f32,
+) {
+    let cy    = rect.center().y;
+    let total = song.notes.len();
+
+    // Faint guide line
+    painter.line_segment(
+        [Pos2::new(rect.left(), cy), Pos2::new(rect.right(), cy)],
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(100, 100, 130, 30)),
+    );
+
+    for (i, note) in song.notes.iter().enumerate() {
+        let x   = freq_to_canvas_x(note.freq, rect);
+        let pos = Pos2::new(x, cy);
+        let hue = freq_to_hue(note.freq);
+
+        if i < note_idx {
+            painter.circle_filled(pos, 4.0, Color32::from_rgba_unmultiplied(80, 200, 100, 100));
+        } else if i == note_idx && note_idx < total {
+            // Destination target ring
+            let col = hue_to_color(hue, 1.0, 1.0, 120);
+            painter.rect_filled(
+                egui::Rect::from_center_size(Pos2::new(x, rect.center().y),
+                    Vec2::new(TOLERANCE_PX * 2.0, rect.height())),
+                0.0, Color32::from_rgba_unmultiplied(200, 200, 255, 5),
+            );
+            painter.line_segment(
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                Stroke::new(1.0, Color32::from_rgba_unmultiplied(180, 180, 255, 18)),
+            );
+            painter.text(Pos2::new(x, cy - 42.0), egui::Align2::CENTER_BOTTOM,
+                note.label, egui::FontId::proportional(16.0),
+                hue_to_color(hue, 0.7, 1.0, 200));
+        } else if i == note_idx + 1 {
+            let col = hue_to_color(hue, 0.7, 0.8, 90);
+            painter.circle_stroke(pos, 11.0, Stroke::new(1.5, col));
+            painter.text(Pos2::new(x, cy - 20.0), egui::Align2::CENTER_BOTTOM,
+                note.label, egui::FontId::proportional(11.0),
+                Color32::from_rgba_unmultiplied(160, 160, 200, 110));
+        } else {
+            painter.circle_filled(pos, 3.0, hue_to_color(hue, 0.5, 0.6, 45));
+        }
+    }
+
+    // ── Golden autoplay cursor orb ────────────────────────────────────────────
+    if note_idx < total {
+        let pulse     = (pulse_t.sin() * 0.5 + 0.5) * 0.4 + 0.6;
+        let orb       = Pos2::new(cursor_x, cursor_y);
+
+        // Outer halo
+        painter.circle_filled(orb, 36.0 * pulse,
+            Color32::from_rgba_unmultiplied(255, 190, 30, 16));
+        // Mid glow
+        painter.circle_filled(orb, 22.0 * pulse,
+            Color32::from_rgba_unmultiplied(255, 200, 60, 45));
+        // Core
+        painter.circle_filled(orb, 11.0,
+            Color32::from_rgba_unmultiplied(255, 230, 90, 240));
+        // Pulsing ring
+        painter.circle_stroke(orb, 17.0 * pulse,
+            Stroke::new(2.5, Color32::from_rgba_unmultiplied(255, 245, 160, 200)));
+        // Inner bright spot
+        painter.circle_filled(orb, 4.0,
+            Color32::from_rgba_unmultiplied(255, 255, 220, 255));
+    }
+
+    // Status line
+    let text = if note_idx >= total {
+        format!("✓  {}  —  complete!", song.name)
+    } else {
+        format!("▶  {}   {}/{}", song.name, note_idx, total)
+    };
+    painter.text(Pos2::new(rect.left() + 10.0, rect.top() + 10.0),
+        egui::Align2::LEFT_TOP, &text, egui::FontId::proportional(12.0),
+        Color32::from_rgba_unmultiplied(255, 215, 80, 210));
+
+    if note_idx >= total {
+        painter.text(rect.center(), egui::Align2::CENTER_CENTER,
+            "Performance complete!",
+            egui::FontId::proportional(28.0),
+            Color32::from_rgba_unmultiplied(255, 200, 80, 230));
     }
 }
 

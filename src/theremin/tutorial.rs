@@ -23,7 +23,17 @@ pub struct TutorialScale {
 
 /// Active tutorial state.
 pub enum TutorialMode {
+    /// User practice: hold cursor on target note to advance.
     Song  { song_idx: usize, note_idx: usize, time_on: f32 },
+    /// Computer plays the song automatically — user watches and listens.
+    Autoplay {
+        song_idx:      usize,
+        note_idx:      usize,
+        time_on_note:  f32,   // elapsed on current note
+        cursor_x:      f32,   // animated screen X
+        cursor_y:      f32,   // fixed screen Y
+    },
+    /// Free-play scale exploration.
     Scale(usize),
 }
 
