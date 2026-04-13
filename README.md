@@ -1,12 +1,8 @@
 # Synesthesia
 
 A collection of audio-visual instruments and physics simulations — where sound becomes something you can see, touch, and explore. Built in Rust with [egui](https://github.com/emilk/egui).
+*Made with Rust · egui · and a love for the intersection of physics and music.*
 
----
-
-![Synesthesia banner](screenshots/banner.png)
-
----
 
 ## Apps
 
@@ -95,5 +91,3 @@ Requires Rust stable (1.75+). Audio via [cpal](https://github.com/RustAudio/cpal
 | [cpal 0.15](https://github.com/RustAudio/cpal) | Cross-platform audio output |
 | [glam 0.29](https://github.com/bitshifter/glam-rs) | Vector math |
 | [fastrand 2](https://github.com/smol-rs/fastrand) | Fast noise and particle randomisation |
-
-*Made with Rust · egui · and a love for the intersection of physics and music.*
