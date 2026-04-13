@@ -1,0 +1,17 @@
+[package]
+name = "synesthesia"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe   = "0.29"
+egui     = "0.29"
+glam     = "0.29"
+cpal     = "0.15"
+fastrand = "2"
+image    = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
