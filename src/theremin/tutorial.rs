@@ -138,6 +138,32 @@ pub static SONGS: &[TutorialSong] = &[
             n!(392.00,6.0,"G4"),
         ],
     },
+
+    TutorialSong {
+        name:        "Toccata & Fugue in D minor",
+        description: "J.S. Bach · BWV 565 · D minor · organ",
+        bpm:         72.0,
+        notes: &[
+            // ── Toccata — iconic opening: one high note, then sweep across the whole canvas ──
+            n!(1174.66,3.0,"D6"),                               // held high D — cursor flies right
+            n!(987.77,0.5,"B5"),  n!(880.00,0.5,"A5"),         // chromatic descent begins
+            n!(783.99,0.5,"G5"),  n!(698.46,0.5,"F5"),
+            n!(622.25,0.5,"Eb5"), n!(587.33,1.0,"D5"),
+            n!(523.25,0.5,"C5"),  n!(466.16,0.5,"Bb4"),
+            n!(440.00,0.5,"A4"),  n!(392.00,0.5,"G4"),
+            n!(349.23,0.5,"F4"),  n!(293.66,3.0,"D4"),         // lands — bottom of descent
+            // Organ pedal — drag further left, very deep
+            n!(220.00,1.5,"A3"),  n!(174.61,1.5,"F3"), n!(146.83,3.0,"D3"),
+            // ── Fugue subject — the famous theme, rising back up ──
+            n!(440.00,0.5,"A4"),  n!(587.33,1.0,"D5"),
+            n!(830.61,0.5,"Ab5"), n!(880.00,1.0,"A5"),
+            n!(698.46,0.5,"F5"),  n!(587.33,0.5,"D5"),
+            n!(523.25,0.5,"C5"),  n!(466.16,0.5,"Bb4"),
+            n!(440.00,1.0,"A4"),  n!(415.30,0.5,"Ab4"), n!(440.00,0.5,"A4"),
+            n!(349.23,0.5,"F4"),  n!(329.63,0.5,"E4"),
+            n!(349.23,0.5,"F4"),  n!(392.00,0.5,"G4"), n!(440.00,3.0,"A4"),
+        ],
+    },
 ];
 
 // ─── Scales ───────────────────────────────────────────────────────────────────
