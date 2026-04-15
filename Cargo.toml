@@ -10,8 +10,16 @@ glam     = "0.29"
 cpal     = "0.15"
 fastrand = "2"
 image    = { version = "0.25", default-features = false, features = ["png"] }
+nokhwa   = { version = "0.10", features = ["input-native"] }
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
+
+# Faster iteration builds — same optimisation level, no LTO, parallel codegen.
+# Use with:  cargo build --profile fast
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16

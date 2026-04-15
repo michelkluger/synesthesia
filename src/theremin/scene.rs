@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::audio::{AudioEngine, AudioState, Waveform};
+use super::camera::{CameraTracker, TrackTarget};
 use super::tutorial::{TutorialMode, TutorialSong, TutorialScale, SONGS, SCALES, ADVANCE_SECS, TOLERANCE_PX};
 
 // ─── constants ────────────────────────────────────────────────────────────────
@@ -49,6 +50,16 @@ pub struct ThereminScene {
     /// Active touch points (finger id → canvas position).
     /// When non-empty these override mouse for up to 2 voices.
     active_touches: HashMap<u64, Pos2>,
+
+    // ── Camera hand tracking ──────────────────────────────────────────────────
+    camera:           Option<CameraTracker>,       // None = camera off
+    cam_texture:      Option<egui::TextureHandle>, // cached GPU texture
+    show_cam_overlay: bool,                        // draw the video feed overlay
+    cam_overlay_alpha: f32,                        // 0–1 opacity of the feed
+    track_target:     TrackTarget,                 // what colour blob to find
+    /// Smoothed blob positions in canvas space — up to 2, one per blob.
+    /// EMA prevents jitter from producing jagged trails.
+    cam_smooth: [Option<Pos2>; 2],
 }
 
 impl ThereminScene {
@@ -67,6 +78,12 @@ impl ThereminScene {
             waveform: Waveform::Sine,
             tutorial: None,
             active_touches: HashMap::new(),
+            camera:           None,
+            cam_texture:      None,
+            show_cam_overlay: true,
+            cam_overlay_alpha: 0.30,
+            track_target:     TrackTarget::TennisBall,
+            cam_smooth:       [None; 2],
         }
     }
 
@@ -347,7 +364,83 @@ impl ThereminScene {
                 ui.add_space(10.0);
                 ui.separator();
 
+                // ── Camera ───────────────────────────────────────────────────
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Camera").size(13.0).color(sec));
+                ui.label(egui::RichText::new(
+                    "Uses your webcam to track hands. Move right → higher pitch, \
+                     move up → louder. Two hands: left controls volume, right controls pitch."
+                ).size(10.0).color(dim).italics());
+                ui.add_space(4.0);
+
+                let cam_active = self.camera.is_some();
+                let btn_label  = if cam_active { "⏹  Camera Off" } else { "📷  Camera On" };
+                let btn_col    = if cam_active {
+                    Color32::from_rgba_unmultiplied(80, 20, 20, 200)
+                } else {
+                    Color32::from_rgba_unmultiplied(20, 60, 40, 200)
+                };
+                // Track-target + blob count selectors
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    for tgt in [TrackTarget::TennisBall, TrackTarget::OrangeBall, TrackTarget::Skin] {
+                        let active = self.track_target == tgt;
+                        if ui.selectable_label(active,
+                            egui::RichText::new(tgt.label()).size(11.0)
+                        ).clicked() {
+                            self.track_target = tgt;
+                            if let Some(ref cam) = self.camera {
+                                if let Ok(mut t) = cam.target.lock() { *t = tgt; }
+                            }
+                        }
+                    }
+                });
+
+                if ui.add(egui::Button::new(
+                    egui::RichText::new(btn_label).size(12.0)
+                ).fill(btn_col)).clicked() {
+                    if cam_active {
+                        self.camera      = None;
+                        self.cam_texture = None;
+                    } else {
+                        self.camera = Some(CameraTracker::new(self.track_target));
+                    }
+                }
+
+                if cam_active {
+                    ui.add_space(4.0);
+                    ui.checkbox(&mut self.show_cam_overlay,
+                        egui::RichText::new("Show overlay").size(12.0).color(dim));
+                    if self.show_cam_overlay {
+                        ui.add(egui::Slider::new(&mut self.cam_overlay_alpha, 0.05..=0.70)
+                            .text(egui::RichText::new("Opacity").size(11.0).color(dim))
+                            .show_value(false));
+                    }
+
+                    // Blob detection status
+                    let info = if let Some(ref cam) = self.camera {
+                        if let Ok(guard) = cam.state.try_lock() {
+                            if let Some(ref cs) = *guard {
+                                match cs.blobs.len() {
+                                    0 => ("No blobs detected", Color32::from_rgb(160, 100, 100)),
+                                    1 => ("1 blob — playing",  Color32::from_rgb(120, 200, 140)),
+                                    _ => ("2 blobs — playing", Color32::from_rgb(100, 220, 180)),
+                                }
+                            } else {
+                                ("Waiting for camera…", Color32::from_rgb(120, 120, 80))
+                            }
+                        } else { ("…", Color32::from_gray(100)) }
+                    } else { ("", Color32::TRANSPARENT) };
+                    if !info.0.is_empty() {
+                        ui.label(egui::RichText::new(info.0).size(11.0).color(info.1));
+                    }
+                }
+
                 // FPS
+                ui.add_space(10.0);
+                ui.separator();
                 ui.add_space(6.0);
                 let fps = ctx.input(|i| i.unstable_dt).recip();
                 ui.label(
@@ -357,7 +450,7 @@ impl ThereminScene {
                 );
 
                 ui.add_space(4.0);
-                if !self.mouse_active {
+                if !self.mouse_active && self.camera.is_none() {
                     ui.label(
                         egui::RichText::new("Move mouse over canvas")
                             .color(Color32::from_rgb(140, 140, 140))
@@ -378,6 +471,71 @@ impl ThereminScene {
 
             // Grid
             render_grid(&painter, rect);
+
+            // ── Camera overlay + hand tracking ───────────────────────────────
+            // Pull latest frame and hand positions out of the camera state.
+            let cam_blobs: Vec<super::camera::HandPos> = if let Some(ref cam) = self.camera {
+                if let Ok(guard) = cam.state.try_lock() {
+                    if let Some(ref cs) = *guard {
+                        if self.show_cam_overlay {
+                            let img = egui::ColorImage::from_rgba_unmultiplied(
+                                [cs.width as usize, cs.height as usize],
+                                &cs.frame,
+                            );
+                            match &mut self.cam_texture {
+                                Some(t) => t.set(img, egui::TextureOptions::LINEAR),
+                                None    => {
+                                    self.cam_texture = Some(ctx.load_texture(
+                                        "cam_feed", img, egui::TextureOptions::LINEAR,
+                                    ));
+                                }
+                            }
+                        }
+                        cs.blobs.clone()
+                    } else { vec![] }
+                } else { vec![] }
+            } else {
+                self.cam_texture = None;
+                vec![]
+            };
+
+            // Draw the overlay (behind trail + cursor)
+            if self.show_cam_overlay {
+                if let Some(ref tex) = self.cam_texture {
+                    let uv    = egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    let alpha = (self.cam_overlay_alpha * 255.0) as u8;
+                    let tint  = Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
+                    painter.image(tex.id(), rect, uv, tint);
+                }
+            }
+
+            // Draw blob cursors using the smoothed positions
+            let pulse = (self.pulse_t.sin() * 0.5 + 0.5) * 0.4 + 0.6;
+            for (bi, smooth_pos) in self.cam_smooth.iter().enumerate() {
+                let Some(pos) = smooth_pos else { continue };
+                let pos = *pos;
+                let rel_x = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                let hue = freq_to_hue(MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(rel_x));
+                let col = hue_to_color(hue, 0.9, 1.0, (pulse * 200.0) as u8);
+                let r   = 8.0 * pulse;
+
+                if bi == 0 {
+                    // First blob: pulsing filled circle + outer ring  (same as mouse/finger 1)
+                    painter.circle_filled(pos, r, col);
+                    painter.circle_stroke(pos, r + 4.0,
+                        Stroke::new(1.5, hue_to_color(hue, 0.6, 1.0, (pulse * 100.0) as u8)));
+                } else {
+                    // Second blob: pulsing square  (same as finger 2)
+                    painter.rect_stroke(
+                        egui::Rect::from_center_size(pos, Vec2::splat(r * 2.0)),
+                        2.0, Stroke::new(2.0, col),
+                    );
+                    painter.rect_stroke(
+                        egui::Rect::from_center_size(pos, Vec2::splat((r + 4.0) * 2.0)),
+                        3.0, Stroke::new(1.5, hue_to_color(hue, 0.6, 1.0, (pulse * 100.0) as u8)),
+                    );
+                }
+            }
 
             // ── Touch events ─────────────────────────────────────────────────
             // Track all active fingers so we can route up to 2 simultaneous voices.
@@ -420,13 +578,76 @@ impl ThereminScene {
                 )
             });
 
-            let over_canvas = mouse_pos.map(|p| rect.contains(p)).unwrap_or(false);
-            self.mouse_active = over_canvas && touch_positions.is_empty();
-
             let is_autoplay = matches!(&self.tutorial, Some(TutorialMode::Autoplay { .. }));
             let use_touch   = !touch_positions.is_empty();
+            let use_camera  = !cam_blobs.is_empty() && self.camera.is_some();
 
-            if is_autoplay {
+            let over_canvas = mouse_pos.map(|p| rect.contains(p)).unwrap_or(false);
+            self.mouse_active = over_canvas && touch_positions.is_empty() && !use_camera;
+
+            if use_camera && !is_autoplay {
+                // ── Camera blobs behave identically to touch fingers ──────────
+                // Each blob: X → pitch, Y → volume — same make_voice logic as touch.
+                let make_voice = |pos: Pos2| -> (f32, f32) {
+                    let rel_x = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                    let rel_y = ((pos.y - rect.top())  / rect.height()).clamp(0.0, 1.0);
+                    let freq  = MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(rel_x);
+                    let vol   = (1.0 - rel_y * 0.9) * self.master_volume;
+                    (freq, vol)
+                };
+
+                // EMA smoothing — lerp stored position toward raw detection.
+                // α = 1-(1-0.18)^(dt*60)  keeps speed independent of frame rate.
+                let alpha = 1.0 - (0.82f32).powf(dt * 60.0);
+
+                for (slot, blob) in cam_blobs.iter().enumerate().take(2) {
+                    let raw = Pos2::new(
+                        rect.left() + blob.x * rect.width(),
+                        rect.top()  + blob.y * rect.height(),
+                    );
+                    let smooth = match self.cam_smooth[slot] {
+                        Some(prev) => prev + (raw - prev) * alpha,
+                        None       => raw,   // first sighting — snap
+                    };
+                    self.cam_smooth[slot] = Some(smooth);
+                }
+                // Clear slots where blob disappeared
+                for slot in cam_blobs.len()..2 {
+                    self.cam_smooth[slot] = None;
+                }
+
+                // Voice 1
+                if let Some(p1) = self.cam_smooth[0] {
+                    let (freq, vol) = make_voice(p1);
+                    self.current_freq = freq;
+                    self.current_vol  = vol;
+                    self.trail.push(TrailPoint { pos: p1, freq, vol, age: 0.0 });
+                    if let Ok(mut s) = self.audio.state.try_lock() {
+                        s.target_freq = freq;
+                        s.target_vol  = vol;
+                        s.active      = true;
+                        s.waveform    = self.waveform;
+                    }
+                }
+
+                // Voice 2
+                if let Some(p2) = self.cam_smooth[1] {
+                    let (freq2, vol2) = make_voice(p2);
+                    self.trail.push(TrailPoint { pos: p2, freq: freq2, vol: vol2, age: 0.0 });
+                    if let Ok(mut s) = self.audio.state.try_lock() {
+                        s.target_freq2 = freq2;
+                        s.target_vol2  = vol2;
+                        s.active2      = true;
+                        s.waveform     = self.waveform;
+                    }
+                } else {
+                    if let Ok(mut s) = self.audio.state.try_lock() {
+                        s.active2     = false;
+                        s.target_vol2 = 0.0;
+                    }
+                }
+
+            } else if is_autoplay {
                 // Autoplay drives voice 1 itself; silence both manual voices.
                 // (voice 2 can still be played with a second finger if desired)
                 if !use_touch {
@@ -497,7 +718,7 @@ impl ThereminScene {
                     s.target_vol2 = 0.0;
                 }
             } else {
-                // No input — silence both voices
+                // No input (and camera active but no hands, or camera off) — silence
                 if let Ok(mut s) = self.audio.state.try_lock() {
                     s.active      = false;
                     s.target_vol  = 0.0;
