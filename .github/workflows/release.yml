@@ -22,32 +22,31 @@ jobs:
           name: synesthesia-windows-x64
           path: target/release/synesthesia.exe
 
-  build-macos-x64:
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build
-        # cpal uses CoreAudio, nokhwa uses AVFoundation — both available natively
-        run: cargo build --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: synesthesia-macos-x64
-          path: target/release/synesthesia
-
-  build-macos-arm:
+  build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --release
+      - name: Build aarch64
+        # CoreAudio and AVFoundation are universal frameworks, cross-compile works fine
+        run: cargo build --release --target aarch64-apple-darwin
+      - name: Build x86_64
+        run: cargo build --release --target x86_64-apple-darwin
+      - name: Create universal binary
+        run: |
+          lipo -create \
+            -output synesthesia-macos-universal \
+            target/aarch64-apple-darwin/release/synesthesia \
+            target/x86_64-apple-darwin/release/synesthesia
+          chmod +x synesthesia-macos-universal
+          zip synesthesia-macos-universal.zip synesthesia-macos-universal
       - uses: actions/upload-artifact@v4
         with:
-          name: synesthesia-macos-arm
-          path: target/release/synesthesia
+          name: synesthesia-macos
+          path: synesthesia-macos-universal.zip
 
   build-linux:
     runs-on: ubuntu-latest
@@ -76,27 +75,17 @@ jobs:
           path: target/release/synesthesia
 
   release:
-    needs: [build-windows, build-macos-x64, build-macos-arm, build-linux]
-    runs-on: macos-latest
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
 
-      - name: Create universal macOS binary
+      - name: Prepare release files
         run: |
-          lipo -create \
-            -output synesthesia-macos-universal \
-            synesthesia-macos-x64/synesthesia \
-            synesthesia-macos-arm/synesthesia
-          chmod +x synesthesia-macos-universal
-          zip synesthesia-macos-universal.zip synesthesia-macos-universal
-
-      - name: Package Linux binary
-        run: |
+          mv synesthesia-windows-x64/synesthesia.exe synesthesia-windows-x64.exe
+          mv synesthesia-macos/synesthesia-macos-universal.zip synesthesia-macos-universal.zip
           chmod +x synesthesia-linux-x64/synesthesia
           zip synesthesia-linux-x64.zip synesthesia-linux-x64/synesthesia
-
-      - name: Rename Windows binary
-        run: mv synesthesia-windows-x64/synesthesia.exe synesthesia-windows-x64.exe
 
       - uses: softprops/action-gh-release@v2
         with:
