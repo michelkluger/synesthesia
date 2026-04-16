@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synesthesia-windows-x64
+          path: target/release/synesthesia.exe
+
+  build-macos-x64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        # cpal uses CoreAudio, nokhwa uses AVFoundation — both available natively
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synesthesia-macos-x64
+          path: target/release/synesthesia
+
+  build-macos-arm:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synesthesia-macos-arm
+          path: target/release/synesthesia
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libv4l-dev \
+            libudev-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libgl1-mesa-dev
+      - name: Build
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synesthesia-linux-x64
+          path: target/release/synesthesia
+
+  release:
+    needs: [build-windows, build-macos-x64, build-macos-arm, build-linux]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create universal macOS binary
+        run: |
+          lipo -create \
+            -output synesthesia-macos-universal \
+            synesthesia-macos-x64/synesthesia \
+            synesthesia-macos-arm/synesthesia
+          chmod +x synesthesia-macos-universal
+          zip synesthesia-macos-universal.zip synesthesia-macos-universal
+
+      - name: Package Linux binary
+        run: |
+          chmod +x synesthesia-linux-x64/synesthesia
+          zip synesthesia-linux-x64.zip synesthesia-linux-x64/synesthesia
+
+      - name: Rename Windows binary
+        run: mv synesthesia-windows-x64/synesthesia.exe synesthesia-windows-x64.exe
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            synesthesia-windows-x64.exe
+            synesthesia-macos-universal.zip
+            synesthesia-linux-x64.zip
